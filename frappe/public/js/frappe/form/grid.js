@@ -71,15 +71,13 @@ export default class Grid {
 						<div class="grid-heading-row"></div>
 						<div class="grid-body">
 							<div class="rows"></div>
-							<div class="grid-empty text-center">
-								<img
-									src="/assets/frappe/images/ui-states/grid-empty-state.svg"
-									alt="Grid Empty State"
-									class="grid-empty-illustration"
-								>
-								${__("No Data")}
+							<div class="grid-empty text-center text-extra-muted">
+								${__("No rows")}
 							</div>
 						</div>
+					</div>
+					<div class="grid-scroll-bar">
+						<div class="grid-scroll-bar-rows"></div>
 					</div>
 				</div>
 				<div class="small form-clickable-section grid-footer">
@@ -125,6 +123,56 @@ export default class Grid {
 
 		this.form_grid = this.wrapper.find(".form-grid");
 
+		if (this.form_grid) {
+			this.form_grid.on("wheel", (e) => {
+				const isTrackpad = Math.abs(e.originalEvent.wheelDeltaY) < 50;
+				const delta = e.originalEvent.deltaX;
+				const scroll_bar = this.wrapper.find(".grid-scroll-bar");
+
+				if (isTrackpad) {
+					scroll_bar.scrollLeft(scroll_bar.scrollLeft() + delta);
+				} else {
+					scroll_bar.scrollLeft(scroll_bar.scrollLeft() + delta * 4);
+				}
+
+				// prevent default behaviour when it is scrolled horizontally
+				if (e.originalEvent.deltaX != 0) {
+					e.preventDefault();
+				}
+			});
+			let touchStartX = 0;
+			let touchMoveX = 0;
+			let isTouchScrolling = false;
+
+			// Handle touch start
+			this.form_grid.on("touchstart", (e) => {
+				const touch = e.originalEvent.touches[0];
+				touchStartX = touch.pageX;
+				isTouchScrolling = true;
+			});
+
+			// Handle touch move
+			this.form_grid.on("touchmove", (e) => {
+				if (!isTouchScrolling) return;
+
+				const touch = e.originalEvent.touches[0];
+				touchMoveX = touch.pageX;
+
+				const scrollBar = this.wrapper.find(".grid-scroll-bar");
+				const deltaX = touchStartX - touchMoveX;
+
+				scrollBar.scrollLeft(scrollBar.scrollLeft() + deltaX);
+
+				touchStartX = touchMoveX;
+
+				e.preventDefault();
+			});
+
+			// Handle touch end
+			this.form_grid.on("touchend", () => {
+				isTouchScrolling = false;
+			});
+		}
 		this.setup_add_row();
 
 		this.setup_grid_pagination();
@@ -144,7 +192,7 @@ export default class Grid {
 	set_grid_description() {
 		let description_wrapper = $(this.parent).find(".grid-description");
 		if (this.df.description) {
-			description_wrapper.text(__(this.df.description));
+			description_wrapper.html(__(this.df.description));
 		} else {
 			description_wrapper.hide();
 		}
@@ -326,9 +374,9 @@ export default class Grid {
 	}
 
 	get_selected_children() {
-		return (this.grid_rows || [])
+		return (this.data || [])
 			.map((row) => {
-				return row.doc.__checked ? row.doc : null;
+				return row.__checked ? row : 0;
 			})
 			.filter((d) => {
 				return d;
@@ -795,7 +843,7 @@ export default class Grid {
 	}
 
 	set_value(fieldname, value, doc) {
-		if (this.display_status !== "None" && doc?.name && this.grid_rows_by_docname[doc.name]) {
+		if (this.display_status !== "None" && doc?.name && this.grid_rows_by_docname?.[doc.name]) {
 			this.grid_rows_by_docname[doc.name].refresh_field(fieldname, value);
 		}
 	}
@@ -886,20 +934,25 @@ export default class Grid {
 	}
 
 	duplicate_row(d, copy_doc) {
+		const noCopyFields = new Set([
+			"creation",
+			"modified",
+			"modified_by",
+			"idx",
+			"owner",
+			"parent",
+			"doctype",
+			"name",
+			"parentfield",
+		]);
+
+		const docfields = frappe.get_meta(this.doctype).fields || [];
+		$.each(docfields, function (_index, df) {
+			if (cint(df.no_copy)) noCopyFields.add(df.fieldname);
+		});
+
 		$.each(copy_doc, function (key, value) {
-			if (
-				![
-					"creation",
-					"modified",
-					"modified_by",
-					"idx",
-					"owner",
-					"parent",
-					"doctype",
-					"name",
-					"parentfield",
-				].includes(key)
-			) {
+			if (!noCopyFields.has(key)) {
 				d[key] = value;
 			}
 		});
@@ -969,7 +1022,6 @@ export default class Grid {
 				}
 
 				total_colsize += df.colsize;
-				if (total_colsize > 11) return false;
 				this.visible_columns.push([df, df.colsize]);
 			}
 		}
@@ -1075,7 +1127,7 @@ export default class Grid {
 
 	setup_allow_bulk_edit() {
 		let me = this;
-		if (this.frm && this.frm.get_docfield(this.df.fieldname).allow_bulk_edit) {
+		if (this.frm && this.frm.get_docfield(this.df.fieldname)?.allow_bulk_edit) {
 			// download
 			this.setup_download();
 
