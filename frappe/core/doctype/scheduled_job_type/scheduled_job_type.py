@@ -44,6 +44,7 @@ class ScheduledJobType(Document):
 		last_execution: DF.Datetime | None
 		method: DF.Data
 		next_execution: DF.Datetime | None
+		scheduler_event: DF.Link | None
 		server_script: DF.Link | None
 		stopped: DF.Check
 	# end: auto-generated types
@@ -94,7 +95,7 @@ class ScheduledJobType(Document):
 	@property
 	def rq_job_id(self):
 		"""Unique ID created to deduplicate jobs with single RQ call."""
-		return f"scheduled_job::{self.name}"
+		return f"scheduled_job||{self.name}"
 
 	@property
 	def next_execution(self):
@@ -191,6 +192,8 @@ def execute_event(doc: str):
 
 def run_scheduled_job(scheduled_job_type: str, job_type: str | None = None):
 	"""This is a wrapper function that runs a hooks.scheduler_events method"""
+	if frappe.conf.maintenance_mode:
+		raise frappe.InReadOnlyMode("Scheduled jobs can't run in maintenance mode.")
 	try:
 		frappe.get_doc("Scheduled Job Type", scheduled_job_type).execute()
 	except Exception:
@@ -265,6 +268,9 @@ def insert_single_event(frequency: str, event: str, cron_format: str | None = No
 def clear_events(scheduler_events: dict):
 	def event_exists(event) -> bool:
 		if event.server_script:
+			return True
+
+		if event.scheduler_event:
 			return True
 
 		freq = frappe.scrub(event.frequency)
